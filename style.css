@@ -1,0 +1,135 @@
+/* geral */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: calc(100vw / 1440 * 10);
+  font-family: "Rubik", san-serif;
+  font-weight: 300;
+  background-color: #0e0d0d;
+  color: #a72424;
+  
+}
+
+a,
+a:visited,
+a:hover {
+  text-decoration: none;
+  color: #0e0d0d;
+}
+/* primeira rolagem */
+main {
+  width: 100vw;
+  min-height: 100vh;
+}
+
+main header {
+  position: fixed;
+  width: 100vw;
+  height: 100vh;
+  padding: 5rem 10rem 5rem 10rem;
+  pointer-events: none;
+  z-index: 1;
+}
+
+main header h1 {
+  font-size: 2rem;
+  text-transform: uppercase;
+}
+
+main header a {
+  display: block;
+  font-size: 2rem;
+  text-transform: uppercase;
+  pointer-events: auto;
+}
+
+.lista {
+  widht: 100vw;
+  min-eight: 100vh;
+}
+
+.lista__item {
+  position: relative;
+  background color: #0e0d0d;
+}
+
+.lista__item__picture img {
+  display:block;
+  object-fit: cover;
+  width: 100vw;
+  height: 100vh;
+
+}
+
+.lista__item p {
+ position: absolute;
+ font-size: 5rem;
+ line-height: 1;
+ bottom: 25rem;
+ padding: 0 10rem;
+ width: 55vw;
+ opacity: 0.7;
+
+
+}
+
+/* responsividade */
+@media screen and (max-width: 750px) and (orientation: portrait) {
+ 
+  html { font-size: calc( 100vw / 768 * 10 ) ;
+
+  }
+
+  main header {
+    position: fixed;
+    width: 100vw;
+    height: 100vh;
+    padding: 5rem 10rem 5rem 10rem;
+    pointer-events: none;
+    z-index: 1;
+  }
+  
+  main header h1 {
+    font-size: 3.8rem;
+    text-transform: uppercase;
+  }
+  
+  main header a {
+    display: block;
+    font-size: 3.6rem;
+    text-transform: uppercase;
+    pointer-events: auto;
+  }
+  
+  .lista {
+    widht: 100vw;
+    min-eight: 100vh;
+  }
+  
+  .lista__item {
+    position: relative;
+    background color: #0e0d0d;
+  }
+  
+  .lista__item__picture img {
+    display:block;
+    object-fit: cover;
+    width: 100vw;
+    height: 100vh;
+  
+  }
+  
+  .lista__item p {
+   position: absolute;
+   font-size: 6rem;
+   line-height: 1;
+   bottom: 50rem;
+   padding: 10rem 5rem 10rem 10rem;
+   width: 67vw;
+   opacity: 0.7;
+}
