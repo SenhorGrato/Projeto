@@ -181,6 +181,25 @@ export class Audiobook {
     if (this._estTimer) { clearInterval(this._estTimer); this._estTimer = null }
   }
 
+  // Real pause: keeps the current utterance so resume() continues mid-word
+  // (instead of restarting the chunk). Falls back gracefully if unsupported.
+  pause() {
+    this._stopEstimator()
+    if (this.synth && this.synth.speaking && !this.synth.paused) {
+      try { this.synth.pause() } catch {}
+    }
+  }
+
+  // Resumes a paused utterance. Returns true if it actually resumed.
+  resume() {
+    if (this.synth && this.synth.paused) {
+      this._active = true
+      try { this.synth.resume() } catch {}
+      return true
+    }
+    return false
+  }
+
   dispose() {
     this.stop()
     if (this._keepAlive) clearInterval(this._keepAlive)

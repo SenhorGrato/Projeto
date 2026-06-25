@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { getBook, updateProgress, updateBookFields } from '../storage.js'
-import { splitWordForDisplay } from '../rsvp.js'
+import { splitWordORP } from '../rsvp.js'
 import { Audiobook, loadVoices, pickBestVoice, speechSupported } from '../tts.js'
 
 const SPEEDS = [
@@ -60,6 +60,7 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
   const activeWordRef = useRef(null)
   const speakerRef = useRef(null)
   const wakeLockRef = useRef(null)
+  const audioPausedAtRef = useRef(-1) // word index where audio was paused (-1 = not paused)
 
   // Load book
   useEffect(() => {
@@ -179,8 +180,19 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
       stopPlaying()
       const sp = speakerRef.current
       if (!sp) return
-      if (playing) { setAudioError(''); sp.play(wordIndexRef.current) }
-      else sp.stop()
+      if (playing) {
+        setAudioError('')
+        // Resume mid-word only if nothing moved while paused; else start fresh.
+        if (wordIndexRef.current === audioPausedAtRef.current && sp.resume()) {
+          // resumed
+        } else {
+          sp.play(wordIndexRef.current)
+        }
+        audioPausedAtRef.current = -1
+      } else {
+        audioPausedAtRef.current = wordIndexRef.current
+        sp.pause()
+      }
       return
     }
 
@@ -341,7 +353,7 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
   const effWpm = mode === 'audio' ? Math.round(audioRate * 165) : wpm
   const remaining = words.length > 0 ? Math.ceil((words.length - wordIndex) / Math.max(effWpm, 1)) : 0
   const currentWord = words[wordIndex] || ''
-  const chars = splitWordForDisplay(currentWord)
+  const orp = splitWordORP(currentWord)
 
   // Context strip
   const ctxStart = Math.max(0, wordIndex - CONTEXT_BEFORE)
@@ -494,18 +506,17 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
 
         {/* Word stage */}
         <div className="word-stage" onClick={() => setPlaying(p => !p)} style={{ cursor: 'pointer' }}>
+          {mode === 'rsvp' && <span className="orp-guide" aria-hidden="true" />}
           {mode === 'audio' && (
             <div className={`audio-badge${playing ? ' speaking' : ''}`}>
               <span className="audio-wave"><i /><i /><i /><i /><i /></span>
               {playing ? 'Narrando…' : 'Audiobook'}
             </div>
           )}
-          <div className="word-display">
-            {chars.map((c, i) => (
-              <span key={i} className={c.highlight ? 'word-char-highlight' : 'word-char'}>
-                {c.char}
-              </span>
-            ))}
+          <div className="word-display" aria-label={currentWord}>
+            <span className="rsvp-before">{orp.before}</span>
+            <span className="rsvp-orp">{orp.orp}</span>
+            <span className="rsvp-after">{orp.after}</span>
           </div>
 
           <div className="word-counter">
@@ -534,13 +545,13 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
         {/* Controls */}
         <div className="reader-controls">
           <div className="controls-main">
-            <button className="ctrl-btn ctrl-btn-sm" title="Início" onClick={() => { setPlaying(false); seekTo(0) }}>⏮</button>
-            <button className="ctrl-btn ctrl-btn-md" title="Voltar (←)" onClick={() => { setPlaying(false); seekTo(wordIndex - 1) }}>◀</button>
-            <button className="ctrl-btn ctrl-btn-lg" onClick={() => setPlaying(p => !p)} title={playing ? 'Pausar (Espaço)' : 'Iniciar (Espaço)'}>
+            <button className="ctrl-btn ctrl-btn-sm" title="Início" aria-label="Ir para o início" onClick={() => { setPlaying(false); seekTo(0) }}>⏮</button>
+            <button className="ctrl-btn ctrl-btn-md" title="Voltar (←)" aria-label="Palavra anterior" onClick={() => { setPlaying(false); seekTo(wordIndex - 1) }}>◀</button>
+            <button className="ctrl-btn ctrl-btn-lg" onClick={() => setPlaying(p => !p)} title={playing ? 'Pausar (Espaço)' : 'Iniciar (Espaço)'} aria-label={playing ? 'Pausar' : 'Iniciar'}>
               {playing ? '⏸' : '▶'}
             </button>
-            <button className="ctrl-btn ctrl-btn-md" title="Avançar (→)" onClick={() => { setPlaying(false); seekTo(wordIndex + 1) }}>▶</button>
-            <button className="ctrl-btn ctrl-btn-sm" title="Ir para o fim" onClick={() => { setPlaying(false); seekTo(words.length - 1) }}>⏭</button>
+            <button className="ctrl-btn ctrl-btn-md" title="Avançar (→)" aria-label="Próxima palavra" onClick={() => { setPlaying(false); seekTo(wordIndex + 1) }}>▶</button>
+            <button className="ctrl-btn ctrl-btn-sm" title="Ir para o fim" aria-label="Ir para o fim" onClick={() => { setPlaying(false); seekTo(words.length - 1) }}>⏭</button>
           </div>
 
           {mode === 'rsvp' ? (
@@ -603,11 +614,12 @@ function AppFooter() {
 function ReaderTopbar({ book, effWpm, mode, themes, prefs, updatePrefs, onBack, sidebarOpen, setSidebarOpen, isBookmarked, onToggleBookmark }) {
   return (
     <div className="reader-topbar">
-      <button className="btn-icon" onClick={onBack} title="Voltar à biblioteca">←</button>
+      <button className="btn-icon" onClick={onBack} title="Voltar à biblioteca" aria-label="Voltar à biblioteca">←</button>
       <button
         className={`btn-icon${sidebarOpen ? ' btn-icon-active' : ''}`}
         onClick={() => setSidebarOpen(p => !p)}
         title="Navegação do texto (N)"
+        aria-label="Abrir navegação do texto"
         style={{ fontSize: 16 }}
       >☰</button>
       {onToggleBookmark && (
@@ -615,6 +627,8 @@ function ReaderTopbar({ book, effWpm, mode, themes, prefs, updatePrefs, onBack, 
           className={`btn-icon${isBookmarked ? ' btn-icon-active' : ''}`}
           onClick={onToggleBookmark}
           title={isBookmarked ? 'Remover marcador deste ponto' : 'Marcar este ponto'}
+          aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
+          aria-pressed={isBookmarked}
           style={{ fontSize: 16 }}
         >{isBookmarked ? '★' : '☆'}</button>
       )}
