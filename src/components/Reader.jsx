@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getBook, updateProgress } from '../storage.js'
+import { getBook, updateProgress, updateBookFields } from '../storage.js'
 import { splitWordForDisplay } from '../rsvp.js'
 import { Audiobook, loadVoices, pickBestVoice, speechSupported } from '../tts.js'
 
@@ -25,6 +25,12 @@ const CONTEXT_AFTER = 4
 // This avoids rendering giant PDFs all at once and keeps navigation smooth.
 const SIDEBAR_WINDOW = 220
 
+// Lowercase + strip accents so search matches "coracao" → "coração".
+const DIACRITICS = new RegExp('[\\u0300-\\u036f]', 'g')
+function normalizeText(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(DIACRITICS, '')
+}
+
 export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
   const [book, setBook] = useState(null)
   const [wordIndex, setWordIndex] = useState(0)
@@ -40,6 +46,12 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
   const [audioRate, setAudioRate] = useState(prefs.audioRate || 1)
   const [audioError, setAudioError] = useState('')
   const supported = speechSupported()
+
+  // ── Bookmarks & search ──
+  const [bookmarks, setBookmarks] = useState([])
+  const [searchTerm, setSearchTerm] = useState('')
+  const [matches, setMatches] = useState([])
+  const [matchPos, setMatchPos] = useState(0)
 
   const intervalRef = useRef(null)
   const wpmRef = useRef(wpm)
@@ -57,6 +69,8 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
       if (!b) { onBack(); return }
       setBook(b)
       bookRef.current = b
+      setBookmarks(Array.isArray(b.bookmarks) ? b.bookmarks : [])
+      if (b.wpm) { setWpm(b.wpm); wpmRef.current = b.wpm } // per-book reading speed
       const startIdx = b.progress || 0
       setWordIndex(startIdx)
       wordIndexRef.current = startIdx
@@ -181,6 +195,7 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
   useEffect(() => {
     if (mode === 'rsvp' && playing) { stopPlaying(); startPlaying() }
     updatePrefs({ wpm })
+    if (bookRef.current) updateBookFields(bookRef.current.id, { wpm }) // remember per book
   }, [wpm])
 
   // Persist audiobook preferences
@@ -261,6 +276,57 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
     setFinished(false)
   }
 
+  // Toggle a bookmark at the current word.
+  const isBookmarked = bookmarks.some(b => b.index === wordIndex)
+  const toggleBookmark = () => {
+    if (!bookRef.current) return
+    const next = isBookmarked
+      ? bookmarks.filter(b => b.index !== wordIndex)
+      : [...bookmarks, { index: wordIndex, createdAt: Date.now() }].sort((a, b) => a.index - b.index)
+    setBookmarks(next)
+    const updated = { ...bookRef.current, bookmarks: next }
+    bookRef.current = updated
+    setBook(updated)
+    updateBookFields(updated.id, { bookmarks: next })
+  }
+
+  const removeBookmark = (index) => {
+    if (!bookRef.current) return
+    const next = bookmarks.filter(b => b.index !== index)
+    setBookmarks(next)
+    const updated = { ...bookRef.current, bookmarks: next }
+    bookRef.current = updated
+    setBook(updated)
+    updateBookFields(updated.id, { bookmarks: next })
+  }
+
+  // Short preview text for a bookmark/match entry.
+  const previewAt = (idx) => {
+    const ws = bookRef.current?.words || []
+    return ws.slice(idx, idx + 6).join(' ')
+  }
+
+  // Search the whole text (accent-insensitive); navigate between hits.
+  const runSearch = (term) => {
+    setSearchTerm(term)
+    const t = normalizeText(term).trim()
+    if (!t) { setMatches([]); setMatchPos(0); return }
+    const ws = bookRef.current?.words || []
+    const found = []
+    for (let i = 0; i < ws.length; i++) {
+      if (normalizeText(ws[i]).includes(t)) found.push(i)
+    }
+    setMatches(found)
+    setMatchPos(0)
+    if (found.length) handleSidebarClick(found[0])
+  }
+  const gotoMatch = (dir) => {
+    if (!matches.length) return
+    const p = (matchPos + dir + matches.length) % matches.length
+    setMatchPos(p)
+    handleSidebarClick(matches[p])
+  }
+
   const switchMode = (next) => {
     if (next === mode) return
     setPlaying(false)
@@ -290,7 +356,7 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
   if (finished) {
     return (
       <div className="reader-view">
-        <ReaderTopbar book={book} effWpm={effWpm} mode={mode} themes={themes} prefs={prefs} updatePrefs={updatePrefs} onBack={onBack} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+        <ReaderTopbar book={book} effWpm={effWpm} mode={mode} themes={themes} prefs={prefs} updatePrefs={updatePrefs} onBack={onBack} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} isBookmarked={isBookmarked} onToggleBookmark={toggleBookmark} />
         <div className="reader-progress-bar"><div className="reader-progress-fill" style={{ width: '100%' }} /></div>
         <div className="finish-screen">
           <div className="finish-emoji">🎉</div>
@@ -321,6 +387,44 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
           <span>{Math.round(progress)}% concluído</span>
           <span>{wordIndex.toLocaleString('pt-BR')} / {words.length.toLocaleString('pt-BR')} palavras</span>
         </div>
+
+        {/* Busca no texto */}
+        <div className="sidebar-search">
+          <input
+            className="sidebar-search-input"
+            type="search"
+            placeholder="Buscar no texto…"
+            value={searchTerm}
+            onChange={e => runSearch(e.target.value)}
+          />
+          {matches.length > 0 && (
+            <div className="sidebar-search-nav">
+              <button className="btn-icon" onClick={() => gotoMatch(-1)} title="Resultado anterior">◀</button>
+              <span>{matchPos + 1} / {matches.length}</span>
+              <button className="btn-icon" onClick={() => gotoMatch(1)} title="Próximo resultado">▶</button>
+            </div>
+          )}
+          {searchTerm && matches.length === 0 && (
+            <div className="sidebar-search-empty">Nenhum resultado</div>
+          )}
+        </div>
+
+        {/* Marcadores */}
+        {bookmarks.length > 0 && (
+          <div className="sidebar-bookmarks">
+            <div className="sidebar-subtitle">Marcadores</div>
+            {bookmarks.map(b => (
+              <div key={b.index} className="bookmark-row">
+                <button className="bookmark-jump" onClick={() => handleSidebarClick(b.index)} title="Ir para o marcador">
+                  <span className="bookmark-pos">{Math.round((b.index / Math.max(words.length - 1, 1)) * 100)}%</span>
+                  <span className="bookmark-text">{previewAt(b.index)}…</span>
+                </button>
+                <button className="btn-icon" onClick={() => removeBookmark(b.index)} title="Remover marcador" style={{ color: '#ef4444' }}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="sidebar-body">
           {sidebarStart > 0 && (
             <button className="sidebar-jump" onClick={() => handleSidebarClick(Math.max(0, sidebarStart - SIDEBAR_WINDOW))}>
@@ -355,7 +459,7 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
 
       {/* ── Main reader ── */}
       <div className="reader-view">
-        <ReaderTopbar book={book} effWpm={effWpm} mode={mode} themes={themes} prefs={prefs} updatePrefs={updatePrefs} onBack={onBack} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+        <ReaderTopbar book={book} effWpm={effWpm} mode={mode} themes={themes} prefs={prefs} updatePrefs={updatePrefs} onBack={onBack} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} isBookmarked={isBookmarked} onToggleBookmark={toggleBookmark} />
 
         <div className="reader-progress-bar">
           <div className="reader-progress-fill" style={{ width: `${progress}%` }} />
@@ -496,7 +600,7 @@ function AppFooter() {
   )
 }
 
-function ReaderTopbar({ book, effWpm, mode, themes, prefs, updatePrefs, onBack, sidebarOpen, setSidebarOpen }) {
+function ReaderTopbar({ book, effWpm, mode, themes, prefs, updatePrefs, onBack, sidebarOpen, setSidebarOpen, isBookmarked, onToggleBookmark }) {
   return (
     <div className="reader-topbar">
       <button className="btn-icon" onClick={onBack} title="Voltar à biblioteca">←</button>
@@ -506,6 +610,14 @@ function ReaderTopbar({ book, effWpm, mode, themes, prefs, updatePrefs, onBack, 
         title="Navegação do texto (N)"
         style={{ fontSize: 16 }}
       >☰</button>
+      {onToggleBookmark && (
+        <button
+          className={`btn-icon${isBookmarked ? ' btn-icon-active' : ''}`}
+          onClick={onToggleBookmark}
+          title={isBookmarked ? 'Remover marcador deste ponto' : 'Marcar este ponto'}
+          style={{ fontSize: 16 }}
+        >{isBookmarked ? '★' : '☆'}</button>
+      )}
       <span className="reader-book-title">{book.name}</span>
       <select
         className="theme-select"

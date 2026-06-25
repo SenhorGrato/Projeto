@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getBooks, saveBook, deleteBook } from '../storage.js'
-import { extractTextFromPDF } from '../pdfExtract.js'
+import { getBooks, saveBook, deleteBook, exportLibrary, importLibrary } from '../storage.js'
+import { extractTextFromPDF, looksLikeNoText } from '../pdfExtract.js'
 
 const DEMO_TEXT = `A leitura dinâmica não é sobre correr sem entender. É sobre criar foco, ritmo e clareza. Com o RSVP Pro, você transforma textos longos em uma experiência objetiva, limpa e sem distrações. Importe um PDF, escolha a velocidade ideal e leia palavra por palavra com destaque visual no ponto certo. O resultado é uma leitura mais concentrada, com menos ruído e mais produtividade. Este modo demonstração existe para você sentir a experiência antes mesmo de enviar um arquivo.`
 
@@ -12,6 +12,7 @@ export default function Library({ prefs, themes, updatePrefs, onOpen }) {
   const [installPrompt, setInstallPrompt] = useState(null)
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef()
+  const importRef = useRef()
 
   const refresh = async () => setBooks(await getBooks())
 
@@ -64,13 +65,28 @@ export default function Library({ prefs, themes, updatePrefs, onOpen }) {
     setLoadingMsg('Preparando seu PDF...')
 
     try {
-      const words = await extractTextFromPDF(file, (pct) => {
+      let words = await extractTextFromPDF(file, (pct) => {
         setLoadingPct(pct)
         setLoadingMsg(`Extraindo texto... ${pct}%`)
       })
 
+      // Scanned PDFs have no selectable text — fall back to OCR (needs internet).
+      if (looksLikeNoText(words)) {
+        setLoadingPct(0)
+        setLoadingMsg('PDF parece escaneado — lendo com OCR (pode demorar)…')
+        try {
+          const { ocrPdfToWords } = await import('../ocr.js')
+          words = await ocrPdfToWords(file, (pct) => {
+            setLoadingPct(pct)
+            setLoadingMsg(`Reconhecendo texto com OCR… ${pct}%`)
+          })
+        } catch (ocrErr) {
+          console.error('OCR falhou:', ocrErr)
+        }
+      }
+
       if (words.length === 0) {
-        alert('Não foi possível extrair texto deste PDF. Tente um PDF com texto selecionável.')
+        alert('Não foi possível extrair texto deste PDF, mesmo com OCR. Verifique sua conexão (o OCR precisa de internet) ou tente outro arquivo.')
         setLoading(false)
         return
       }
@@ -120,6 +136,37 @@ export default function Library({ prefs, themes, updatePrefs, onOpen }) {
   const handleRestart = async (book) => {
     await saveBook({ ...book, progress: 0, status: 'new' })
     await refresh()
+  }
+
+  const handleExport = async () => {
+    try {
+      const data = await exportLibrary()
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `rsvp-biblioteca-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error(err)
+      alert('Não foi possível exportar a biblioteca.')
+    }
+  }
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (importRef.current) importRef.current.value = ''
+    if (!file) return
+    try {
+      const payload = JSON.parse(await file.text())
+      const n = await importLibrary(payload)
+      await refresh()
+      alert(`${n} livro(s) importado(s) com sucesso.`)
+    } catch (err) {
+      console.error(err)
+      alert('Arquivo de backup inválido.')
+    }
   }
 
   const handleDrop = (e) => {
@@ -173,6 +220,8 @@ export default function Library({ prefs, themes, updatePrefs, onOpen }) {
             <span className="logo-name">RSVP Pro</span>
           </div>
           <div className="header-actions">
+            <button className="btn-icon" onClick={handleExport} title="Exportar biblioteca (backup)">⤓</button>
+            <button className="btn-icon" onClick={() => importRef.current.click()} title="Importar biblioteca (restaurar backup)">⤒</button>
             <select
               className="theme-select"
               value={prefs.theme}
@@ -195,6 +244,13 @@ export default function Library({ prefs, themes, updatePrefs, onOpen }) {
           accept=".pdf"
           style={{ display: 'none' }}
           onChange={handleFile}
+        />
+        <input
+          ref={importRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={handleImportFile}
         />
 
         <section className="hero-panel">

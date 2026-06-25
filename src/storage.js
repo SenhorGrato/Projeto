@@ -107,6 +107,39 @@ export async function getBook(id) {
   }
 }
 
+// Merges arbitrary fields (wpm, bookmarks, ...) into a stored book.
+export async function updateBookFields(id, fields) {
+  try {
+    await tx('readwrite', async store => {
+      const book = await reqAsPromise(store.get(id))
+      if (!book) return
+      Object.assign(book, fields)
+      await reqAsPromise(store.put(book))
+    })
+  } catch (err) {
+    console.error('Erro ao atualizar livro:', err)
+  }
+}
+
+// ===== BACKUP (export / import) =====
+
+export async function exportLibrary() {
+  const books = await getBooks()
+  return { app: 'leitura-rsvp-pro', version: 1, exportedAt: new Date().toISOString(), books }
+}
+
+export async function importLibrary(payload) {
+  const books = Array.isArray(payload) ? payload : payload && payload.books
+  if (!Array.isArray(books)) throw new Error('Arquivo de backup inválido.')
+  let imported = 0
+  await tx('readwrite', store => {
+    for (const b of books) {
+      if (b && b.id && Array.isArray(b.words)) { store.put(b); imported++ }
+    }
+  })
+  return imported
+}
+
 export async function updateProgress(id, wordIndex) {
   try {
     await tx('readwrite', async store => {
