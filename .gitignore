@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Arquivos vazios gerados por engano (npm/vite stubs)
+/npm
+/vite
+/leitura-rsvp-pro@1.0.0
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# Netlify
+.netlify/
