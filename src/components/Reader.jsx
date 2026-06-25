@@ -47,6 +47,7 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
   const bookRef = useRef(null)
   const activeWordRef = useRef(null)
   const speakerRef = useRef(null)
+  const wakeLockRef = useRef(null)
 
   // Load book
   useEffect(() => {
@@ -189,6 +190,35 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
 
   // Stop any speech when leaving the reader
   useEffect(() => () => { speakerRef.current && speakerRef.current.stop() }, [])
+
+  // Keep the screen awake while actively reading or narrating. The lock is
+  // released automatically when paused, when leaving, or by the OS when the
+  // tab is hidden — so we also re-acquire it when the tab becomes visible.
+  useEffect(() => {
+    if (!('wakeLock' in navigator) || !playing) return
+    let cancelled = false
+
+    const acquire = async () => {
+      try {
+        wakeLockRef.current = await navigator.wakeLock.request('screen')
+      } catch { /* user denied or not allowed in this context */ }
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && !cancelled) acquire()
+    }
+
+    acquire()
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', onVisible)
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {})
+        wakeLockRef.current = null
+      }
+    }
+  }, [playing])
 
   // Seek helper: keeps refs + engine consistent
   const seekTo = useCallback((idx) => {

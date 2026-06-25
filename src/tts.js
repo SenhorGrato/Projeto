@@ -92,6 +92,13 @@ export class Audiobook {
     this._utter = null
     this._chunkEnd = 0
 
+    // Time-based highlight estimator. Many "online/natural" voices (notably
+    // Edge's) never fire `boundary` events, so the karaoke highlight would
+    // freeze at the start of each chunk. When that happens we advance the
+    // highlight ourselves using an estimated speaking pace.
+    this._estTimer = null
+    this._boundarySeen = false
+
     this.onWord = null // (wordIndex) => void
     this.onEnd = null // () => void
     this.onError = null // (message) => void
@@ -138,9 +145,40 @@ export class Audiobook {
   stop() {
     this._active = false
     this._utter = null
+    this._stopEstimator()
     if (this.synth) {
       try { this.synth.cancel() } catch {}
     }
+  }
+
+  // Advances the highlight by estimated time across the current chunk's words.
+  // Used only as a fallback when the engine doesn't report word boundaries.
+  _startEstimator(text, ranges) {
+    this._stopEstimator()
+    if (!ranges.length || !text.length) return
+    // ~15 chars/s is a reasonable neutral TTS pace at rate 1; scales with rate.
+    const charsPerSec = 15 * this.rate
+    const totalMs = Math.max(300, (text.length / charsPerSec) * 1000)
+    const start = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+    this._estTimer = setInterval(() => {
+      if (!this._active || this._boundarySeen) { this._stopEstimator(); return }
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+      const frac = Math.min(0.999, (now - start) / totalMs)
+      const charPos = frac * text.length
+      let r = ranges[0]
+      for (let k = 0; k < ranges.length; k++) {
+        if (charPos >= ranges[k].start) r = ranges[k]
+        else break
+      }
+      if (r && r.index !== this.currentWord) {
+        this.currentWord = r.index
+        this.onWord && this.onWord(r.index)
+      }
+    }, 80)
+  }
+
+  _stopEstimator() {
+    if (this._estTimer) { clearInterval(this._estTimer); this._estTimer = null }
   }
 
   dispose() {
@@ -150,6 +188,7 @@ export class Audiobook {
   }
 
   _speakNext() {
+    this._stopEstimator()
     if (!this._active) return
     if (this.currentWord >= this.words.length) {
       this._active = false
@@ -180,8 +219,20 @@ export class Audiobook {
     u.rate = this.rate
     u.pitch = this.pitch
 
+    // New chunk: assume no boundary support until the engine proves otherwise.
+    this._boundarySeen = false
+
+    u.onstart = () => {
+      // If real boundary events arrive, this estimator stops itself on the
+      // first one (see onboundary). Otherwise it carries the whole chunk.
+      this._startEstimator(text, ranges)
+    }
+
     u.onboundary = (e) => {
       if (e.name && e.name !== 'word') return
+      // Engine reports real word boundaries — trust them over the estimator.
+      this._boundarySeen = true
+      this._stopEstimator()
       const ci = e.charIndex || 0
       let r = null
       for (let k = 0; k < ranges.length; k++) {
@@ -195,6 +246,7 @@ export class Audiobook {
     }
 
     u.onend = () => {
+      this._stopEstimator()
       if (this._active && this._utter === u) {
         this.currentWord = nextStart
         this._speakNext()

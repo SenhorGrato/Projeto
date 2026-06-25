@@ -1190,19 +1190,19 @@ body {
     letter-spacing: -0.03em !important;
   }
 
-  .hero {
-    min-height: auto !important;
-    padding-top: 32px !important;
-    padding-bottom: 32px !important;
+  /* Hero centralizado de verdade — classes reais são .hero-panel/.hero-copy
+     (as antigas .hero/.hero-content/.hero-inner não existem neste app). */
+  .hero-panel {
     text-align: center;
   }
 
-  .hero-content,
-  .hero-inner {
-    width: 100%;
-    max-width: 100%;
+  .hero-copy {
+    display: flex;
+    flex-direction: column;
     align-items: center;
     text-align: center;
+    width: 100%;
+    max-width: 100%;
   }
 
   h1,
@@ -1217,8 +1217,9 @@ body {
     text-wrap: balance;
   }
 
-  h2,
-  .section-title {
+  /* Só títulos reais (h2). NÃO incluir .section-title: no app ele é um
+     rótulo pequeno (12px) e era inflado erroneamente para 24–36px. */
+  h2 {
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
     font-size: clamp(24px, 7vw, 36px) !important;
     line-height: 1.08 !important;
@@ -1245,19 +1246,19 @@ body {
     gap: 12px !important;
   }
 
-  button,
-  .button,
-  .btn,
-  .primary-button,
-  .secondary-button {
+  /* Largura total só nos CTAs principais (hero e estado vazio), não em
+     todo botão — senão o cabeçalho e ações pequenas ficam esticados/tortos. */
+  .hero-actions .btn,
+  .empty-actions .btn {
     width: 100%;
-    min-height: 48px;
     justify-content: center;
     font-size: 15px !important;
     padding: 14px 18px !important;
     border-radius: 16px !important;
     box-sizing: border-box;
   }
+  /* Alvo de toque confortável para qualquer botão, sem forçar largura. */
+  .btn { min-height: 44px; }
 
   .stats,
   .status-cards,
@@ -1670,4 +1671,46 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .audio-badge.speaking .audio-wave i { animation: none !important; height: 10px !important; }
   * { scroll-behavior: auto !important; }
+}
+
+/* =========================================================
+   BLINDAGEM CONTRA CORTE/OVERFLOW HORIZONTAL (todas as larguras)
+   O .reader-shell tem overflow:hidden, então qualquer filho mais
+   largo que a tela era CORTADO (não rolava). Aqui garantimos que
+   nada exceda a largura disponível e que itens flex possam encolher.
+========================================================= */
+.reader-shell,
+.reader-view {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Itens flex só encolhem de verdade com min-width:0 */
+.reader-topbar,
+.mode-switch,
+.controls-main,
+.controls-secondary,
+.reader-controls,
+.context-strip,
+.word-stage {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.reader-topbar > * { min-width: 0; }
+.reader-book-title { min-width: 0; }
+
+/* A palavra/contexto nunca empurram a largura */
+.word-display,
+.context-text {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* Faixas roláveis (presets de velocidade/voz) contêm o overflow nelas
+   mesmas em vez de estourar o leitor */
+.controls-secondary {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
