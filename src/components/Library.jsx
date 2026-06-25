@@ -5,7 +5,7 @@ import { extractTextFromPDF } from '../pdfExtract.js'
 const DEMO_TEXT = `A leitura dinâmica não é sobre correr sem entender. É sobre criar foco, ritmo e clareza. Com o RSVP Pro, você transforma textos longos em uma experiência objetiva, limpa e sem distrações. Importe um PDF, escolha a velocidade ideal e leia palavra por palavra com destaque visual no ponto certo. O resultado é uma leitura mais concentrada, com menos ruído e mais produtividade. Este modo demonstração existe para você sentir a experiência antes mesmo de enviar um arquivo.`
 
 export default function Library({ prefs, themes, updatePrefs, onOpen }) {
-  const [books, setBooks] = useState(getBooks)
+  const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState('')
   const [loadingPct, setLoadingPct] = useState(0)
@@ -13,7 +13,9 @@ export default function Library({ prefs, themes, updatePrefs, onOpen }) {
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef()
 
-  const refresh = () => setBooks(getBooks())
+  const refresh = async () => setBooks(await getBooks())
+
+  useEffect(() => { refresh() }, [])
 
   const stats = useMemo(() => {
     const totalWords = books.reduce((sum, book) => sum + (book.words?.length || 0), 0)
@@ -82,18 +84,18 @@ export default function Library({ prefs, themes, updatePrefs, onOpen }) {
         addedAt: new Date().toISOString(),
       }
 
-      saveBook(book)
-      refresh()
+      await saveBook(book)
+      await refresh()
     } catch (err) {
       console.error(err)
-      alert('Erro ao processar o PDF. Verifique se o arquivo está correto.')
+      alert(err?.message || 'Erro ao processar o PDF. Verifique se o arquivo está correto.')
     }
 
     setLoading(false)
     setLoadingPct(0)
   }
 
-  const handleDemo = () => {
+  const handleDemo = async () => {
     const words = DEMO_TEXT.split(/\s+/).map(w => w.trim()).filter(Boolean)
     const demoBook = {
       id: `demo-${Date.now()}`,
@@ -104,20 +106,20 @@ export default function Library({ prefs, themes, updatePrefs, onOpen }) {
       addedAt: new Date().toISOString(),
     }
 
-    saveBook(demoBook)
-    refresh()
+    await saveBook(demoBook)
+    await refresh()
     onOpen(demoBook.id)
   }
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (!confirm('Remover este livro da biblioteca?')) return
-    deleteBook(id)
-    refresh()
+    await deleteBook(id)
+    await refresh()
   }
 
-  const handleRestart = (book) => {
-    saveBook({ ...book, progress: 0, status: 'new' })
-    refresh()
+  const handleRestart = async (book) => {
+    await saveBook({ ...book, progress: 0, status: 'new' })
+    await refresh()
   }
 
   const handleDrop = (e) => {

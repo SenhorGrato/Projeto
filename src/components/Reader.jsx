@@ -50,16 +50,20 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
 
   // Load book
   useEffect(() => {
-    const b = getBook(bookId)
-    if (!b) { onBack(); return }
-    setBook(b)
-    bookRef.current = b
-    const startIdx = b.progress || 0
-    setWordIndex(startIdx)
-    wordIndexRef.current = startIdx
-    if (startIdx >= b.words.length - 1 && b.words.length > 0) {
-      setFinished(true)
-    }
+    let alive = true
+    getBook(bookId).then(b => {
+      if (!alive) return
+      if (!b) { onBack(); return }
+      setBook(b)
+      bookRef.current = b
+      const startIdx = b.progress || 0
+      setWordIndex(startIdx)
+      wordIndexRef.current = startIdx
+      if (startIdx >= b.words.length - 1 && b.words.length > 0) {
+        setFinished(true)
+      }
+    })
+    return () => { alive = false }
   }, [bookId])
 
   // Sync refs
