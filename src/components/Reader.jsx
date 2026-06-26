@@ -31,6 +31,22 @@ function normalizeText(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(DIACRITICS, '')
 }
 
+// Adaptive RSVP rhythm: how long to hold a word, as a multiple of the base
+// (60s / WPM). Longer words and sentence breaks get more time so reading
+// feels natural instead of metronomic. Short words go slightly faster.
+function wordDelayFactor(w) {
+  const word = w || ''
+  let f = 1
+  const len = word.replace(/[^0-9A-Za-zÀ-ÿ]/g, '').length
+  if (len >= 12) f += 0.6
+  else if (len >= 9) f += 0.4
+  else if (len >= 6) f += 0.18
+  else if (len <= 2) f -= 0.12
+  if (/[,;:—–]["')\]]?$/.test(word)) f += 0.5       // clause break
+  if (/[.!?…]["')\]]?$/.test(word)) f += 1.1        // sentence end
+  return Math.max(0.6, f)
+}
+
 export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
   const [book, setBook] = useState(null)
   const [wordIndex, setWordIndex] = useState(0)
@@ -150,13 +166,25 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
 
   // RSVP playback engine (timer driven)
   const startPlaying = useCallback(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
+    if (intervalRef.current) clearTimeout(intervalRef.current)
+
+    // Recursive setTimeout (not setInterval) so each word can have its own
+    // adaptive hold time based on length and punctuation.
+    const schedule = () => {
+      const b = bookRef.current
+      if (!b) return
+      const word = b.words[wordIndexRef.current] || ''
+      const base = 60000 / wpmRef.current
+      const delay = Math.round(base * wordDelayFactor(word))
+      intervalRef.current = setTimeout(tick, delay)
+    }
     const tick = () => {
       const b = bookRef.current
       if (!b) return
       const next = wordIndexRef.current + 1
       if (next >= b.words.length) {
-        clearInterval(intervalRef.current)
+        clearTimeout(intervalRef.current)
+        intervalRef.current = null
         setPlaying(false)
         setFinished(true)
         updateProgress(b.id, b.words.length - 1)
@@ -164,13 +192,13 @@ export default function Reader({ bookId, prefs, themes, updatePrefs, onBack }) {
       }
       setWordIndex(next)
       wordIndexRef.current = next
+      schedule()
     }
-    const delay = Math.round(60000 / wpmRef.current)
-    intervalRef.current = setInterval(tick, delay)
+    schedule()
   }, [])
 
   const stopPlaying = useCallback(() => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
+    if (intervalRef.current) clearTimeout(intervalRef.current)
     intervalRef.current = null
   }, [])
 
